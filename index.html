@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scanner Ripper - V1.8-C</title>
+  <title>Scanner Ripper - V1.8-C.4.1</title>
 
-  <!-- Lector de códigos de barras / QR -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 
   <style>
@@ -26,7 +25,7 @@
     }
 
     .card {
-      background: #ffffff;
+      background: #fff;
       border-radius: 16px;
       padding: 18px;
       box-shadow: 0 4px 18px rgba(0,0,0,.10);
@@ -82,6 +81,12 @@
       color: white;
     }
 
+    #btnSiguiente {
+      background: #2563eb;
+      color: white;
+      display: none;
+    }
+
     #btnDetener {
       background: #e5e7eb;
       color: #111827;
@@ -109,6 +114,11 @@
     .estado.error {
       background: #fee2e2;
       color: #991b1b;
+    }
+
+    .estado.espera {
+      background: #fef3c7;
+      color: #92400e;
     }
 
     .resultado {
@@ -163,7 +173,7 @@
 
     <div class="card">
       <h1>📷 Scanner Ripper</h1>
-      <div class="subtitulo">V1.8-C — Scanner externo integrado</div>
+      <div class="subtitulo">V1.8-C.4.1 — Control de lectura individual</div>
 
       <div class="ubicacion">
         Ubicación: <span id="ubicacion">NO SELECCIONADA</span>
@@ -173,6 +183,7 @@
 
       <div class="botones">
         <button id="btnIniciar" onclick="iniciarScanner()">📷 INICIAR CÁMARA</button>
+        <button id="btnSiguiente" onclick="nuevaPrenda()">▶ SIGUIENTE PRENDA</button>
         <button id="btnDetener" onclick="detenerScanner()" disabled>⛔ DETENER</button>
       </div>
 
@@ -181,8 +192,10 @@
       </div>
 
       <div class="nota">
-        Esta página utiliza la cámara del celular para leer el código de barras.
-        El SKU leído se devuelve a la aplicación principal.
+        Cada lectura se registra como una sola prenda. Después de leer,
+        el scanner se bloquea hasta retirar la prenda y pulsar
+        <strong>SIGUIENTE PRENDA</strong>. Esto evita múltiples registros
+        por una misma etiqueta.
       </div>
     </div>
 
@@ -206,32 +219,50 @@
   <script>
     let html5QrCode = null;
     let scannerActivo = false;
+    let lecturaBloqueada = false;
     let ultimoCodigo = "";
-    let ultimoMomento = 0;
 
     const PARAMETROS = new URLSearchParams(window.location.search);
 
-    const ubicacionCodigo = (PARAMETROS.get("ubicacion") || "").trim().toUpperCase();
-    const ubicacionNombre = (PARAMETROS.get("nombre") || ubicacionCodigo || "NO SELECCIONADA").trim();
+    const ubicacionCodigo =
+      (PARAMETROS.get("ubicacion") || "").trim().toUpperCase();
 
-    // La aplicación principal nos entrega su origen al abrir esta página.
-    // Esto permite devolver el resultado mediante postMessage.
-    const targetOrigin = PARAMETROS.get("targetOrigin") || "*";
+    const ubicacionNombre =
+      (PARAMETROS.get("nombre") ||
+       ubicacionCodigo ||
+       "NO SELECCIONADA").trim();
+
+    const targetOrigin =
+      PARAMETROS.get("targetOrigin") || "*";
 
     document.getElementById("ubicacion").textContent =
-      ubicacionCodigo ? ubicacionNombre + " (" + ubicacionCodigo + ")" : "NO SELECCIONADA";
+      ubicacionCodigo
+        ? ubicacionNombre + " (" + ubicacionCodigo + ")"
+        : "NO SELECCIONADA";
 
     document.getElementById("resultadoUbicacion").textContent =
-      ubicacionCodigo ? ubicacionNombre + " (" + ubicacionCodigo + ")" : "—";
+      ubicacionCodigo
+        ? ubicacionNombre + " (" + ubicacionCodigo + ")"
+        : "—";
+
 
     function mostrarEstado(texto, tipo) {
-      const elemento = document.getElementById("estado");
+
+      const elemento =
+        document.getElementById("estado");
+
       elemento.textContent = texto;
-      elemento.className = "estado" + (tipo ? " " + tipo : "");
+
+      elemento.className =
+        "estado" +
+        (tipo ? " " + tipo : "");
     }
 
+
     function mostrarResultado(sku) {
+
       document.getElementById("sku").textContent = sku;
+
       document.getElementById("hora").textContent =
         new Date().toLocaleTimeString("es-PE", {
           hour: "2-digit",
@@ -239,77 +270,229 @@
           second: "2-digit"
         });
 
-      document.getElementById("resultado").classList.add("visible");
+      document
+        .getElementById("resultado")
+        .classList.add("visible");
     }
 
+
     function enviarSKUAlSistema(sku) {
+
       if (!window.opener || window.opener.closed) {
-        mostrarEstado("⚠️ La aplicación principal no está abierta.", "error");
-        return;
+
+        mostrarEstado(
+          "⚠️ La aplicación principal no está abierta.",
+          "error"
+        );
+
+        return false;
       }
 
       window.opener.postMessage({
+
         type: "PUNTO_CERO_SCAN",
+
         sku: sku,
+
         ubicacion: ubicacionCodigo
+
       }, targetOrigin);
 
-      mostrarResultado(sku);
-      mostrarEstado("✅ Código leído y enviado al sistema.", "ok");
+      return true;
     }
 
-    function procesarCodigo(decodedText) {
-      const sku = String(decodedText || "").trim().toUpperCase();
 
-      if (!sku) return;
+    async function procesarCodigo(decodedText) {
 
-      // Evita registrar varias veces el mismo código por una sola lectura
-      // debido a que la cámara puede detectar el mismo código varios frames.
-      const ahora = Date.now();
+      // ==========================================
+      // BLOQUEO INMEDIATO
+      // ==========================================
 
-      if (sku === ultimoCodigo && (ahora - ultimoMomento) < 1800) {
+      if (lecturaBloqueada) {
         return;
       }
 
-      ultimoCodigo = sku;
-      ultimoMomento = ahora;
+      const sku =
+        String(decodedText || "")
+          .trim()
+          .toUpperCase();
 
-      enviarSKUAlSistema(sku);
+      if (!sku) {
+        return;
+      }
+
+      // ==========================================
+      // BLOQUEAR ANTES DE ENVIAR
+      // ==========================================
+
+      lecturaBloqueada = true;
+      ultimoCodigo = sku;
+
+      mostrarEstado(
+        "⏳ Código detectado. Registrando una sola unidad...",
+        "espera"
+      );
+
+
+      // ==========================================
+      // ENVIAR AL SISTEMA PRINCIPAL
+      // ==========================================
+
+      const enviado =
+        enviarSKUAlSistema(sku);
+
+      if (!enviado) {
+
+        lecturaBloqueada = false;
+
+        return;
+      }
+
+
+      // ==========================================
+      // MOSTRAR RESULTADO
+      // ==========================================
+
+      mostrarResultado(sku);
+
+
+      // ==========================================
+      // DETENER CÁMARA INMEDIATAMENTE
+      //
+      // Esto evita que el mismo código sea
+      // detectado en varios frames.
+      // ==========================================
+
+      if (html5QrCode && scannerActivo) {
+
+        try {
+
+          await html5QrCode.stop();
+
+        } catch (error) {
+
+          console.warn(
+            "Aviso al detener scanner:",
+            error
+          );
+
+        }
+
+      }
+
+      scannerActivo = false;
+
+      document.getElementById(
+        "btnIniciar"
+      ).style.display = "none";
+
+      document.getElementById(
+        "btnSiguiente"
+      ).style.display = "block";
+
+      document.getElementById(
+        "btnDetener"
+      ).disabled = true;
+
+      mostrarEstado(
+        "✅ Código leído. Una sola unidad preparada para registro. Retira la prenda y pulsa SIGUIENTE PRENDA.",
+        "ok"
+      );
+
     }
 
+
     function iniciarScanner() {
-      if (scannerActivo) return;
+
+      if (scannerActivo) {
+        return;
+      }
+
+      lecturaBloqueada = false;
 
       try {
-        html5QrCode = new Html5Qrcode("reader");
+
+        html5QrCode =
+          new Html5Qrcode("reader");
 
         const config = {
+
           fps: 10,
-          qrbox: { width: 280, height: 160 },
+
+          qrbox: {
+            width: 280,
+            height: 160
+          },
+
           aspectRatio: 1.777778
+
         };
 
-        mostrarEstado("Solicitando permiso de cámara...", "");
+        mostrarEstado(
+          "Solicitando permiso de cámara...",
+          ""
+        );
+
 
         html5QrCode.start(
-          { facingMode: "environment" },
-          config,
-          function(decodedText) {
-            procesarCodigo(decodedText);
-          },
-          function(errorMessage) {
-            // No mostramos cada error de lectura para evitar ruido visual.
-          }
-        ).then(function() {
-          scannerActivo = true;
-          document.getElementById("btnIniciar").disabled = true;
-          document.getElementById("btnDetener").disabled = false;
-          mostrarEstado("📷 Cámara activa. Apunta al código de barras.", "ok");
-        }).catch(function(error) {
-          console.error("Error de cámara:", error);
 
-          const nombre = error && error.name ? error.name : "";
-          const mensaje = error && error.message ? error.message : String(error || "");
+          {
+            facingMode: "environment"
+          },
+
+          config,
+
+          function(decodedText) {
+
+            procesarCodigo(decodedText);
+
+          },
+
+          function(errorMessage) {
+            // Errores normales de búsqueda:
+            // no mostramos cada frame fallido.
+          }
+
+        ).then(function() {
+
+          scannerActivo = true;
+
+          document.getElementById(
+            "btnIniciar"
+          ).disabled = true;
+
+          document.getElementById(
+            "btnSiguiente"
+          ).style.display = "none";
+
+          document.getElementById(
+            "btnDetener"
+          ).disabled = false;
+
+          mostrarEstado(
+            "📷 Cámara activa. Apunta al código de una sola prenda.",
+            "ok"
+          );
+
+        }).catch(function(error) {
+
+          console.error(
+            "Error de cámara:",
+            error
+          );
+
+          scannerActivo = false;
+          lecturaBloqueada = false;
+
+          const nombre =
+            error && error.name
+              ? error.name
+              : "";
+
+          const mensaje =
+            error && error.message
+              ? error.message
+              : String(error || "");
 
           mostrarEstado(
             "❌ No se pudo iniciar la cámara." +
@@ -317,35 +500,141 @@
             (mensaje ? " " + mensaje : ""),
             "error"
           );
+
+          document.getElementById(
+            "btnIniciar"
+          ).disabled = false;
+
         });
 
       } catch (error) {
-        console.error("Error iniciando scanner:", error);
-        mostrarEstado("❌ Error al preparar el scanner.", "error");
+
+        console.error(
+          "Error iniciando scanner:",
+          error
+        );
+
+        scannerActivo = false;
+        lecturaBloqueada = false;
+
+        mostrarEstado(
+          "❌ Error al preparar el scanner.",
+          "error"
+        );
+
       }
+
     }
 
-    function detenerScanner() {
-      if (!html5QrCode || !scannerActivo) return;
 
-      html5QrCode.stop()
-        .then(function() {
-          scannerActivo = false;
-          document.getElementById("btnIniciar").disabled = false;
-          document.getElementById("btnDetener").disabled = true;
-          mostrarEstado("Cámara detenida.", "");
-        })
-        .catch(function(error) {
-          console.error("Error deteniendo cámara:", error);
-          mostrarEstado("⚠️ No se pudo detener correctamente la cámara.", "error");
-        });
+    async function nuevaPrenda() {
+
+      // ==========================================
+      // PREPARAR NUEVA LECTURA
+      // ==========================================
+
+      lecturaBloqueada = false;
+      ultimoCodigo = "";
+
+      document.getElementById(
+        "btnSiguiente"
+      ).style.display = "none";
+
+      document.getElementById(
+        "btnIniciar"
+      ).style.display = "block";
+
+      document.getElementById(
+        "btnIniciar"
+      ).disabled = false;
+
+      mostrarEstado(
+        "Listo para la siguiente prenda.",
+        ""
+      );
+
+      iniciarScanner();
+
     }
 
-    window.addEventListener("beforeunload", function() {
-      if (html5QrCode && scannerActivo) {
-        html5QrCode.stop().catch(function() {});
+
+    async function detenerScanner() {
+
+      lecturaBloqueada = true;
+
+      if (!html5QrCode || !scannerActivo) {
+
+        scannerActivo = false;
+
+        document.getElementById(
+          "btnDetener"
+        ).disabled = true;
+
+        return;
       }
-    });
+
+      try {
+
+        await html5QrCode.stop();
+
+        scannerActivo = false;
+
+        document.getElementById(
+          "btnIniciar"
+        ).disabled = false;
+
+        document.getElementById(
+          "btnSiguiente"
+        ).style.display = "none";
+
+        document.getElementById(
+          "btnIniciar"
+        ).style.display = "block";
+
+        document.getElementById(
+          "btnDetener"
+        ).disabled = true;
+
+        mostrarEstado(
+          "Cámara detenida.",
+          ""
+        );
+
+      } catch (error) {
+
+        console.error(
+          "Error deteniendo cámara:",
+          error
+        );
+
+        mostrarEstado(
+          "⚠️ No se pudo detener correctamente la cámara.",
+          "error"
+        );
+
+      }
+
+    }
+
+
+    window.addEventListener(
+      "beforeunload",
+      function() {
+
+        if (
+          html5QrCode &&
+          scannerActivo
+        ) {
+
+          html5QrCode
+            .stop()
+            .catch(function() {});
+
+        }
+
+      }
+    );
+
   </script>
 </body>
 </html>
