@@ -351,6 +351,24 @@
 
         return;
       }
+      // =====================================================
+// CONSULTA STOCK → CERRAR SCANNER DESPUÉS DE LEER
+// =====================================================
+
+if (modo === 'CONSULTA_STOCK') {
+
+  mostrarEstado(
+    "✅ Código leído. Regresando a la consulta...",
+    "ok"
+  );
+
+  setTimeout(function() {
+    window.close();
+  }, 300);
+
+  return;
+}
+      
 
 
       // ==========================================
