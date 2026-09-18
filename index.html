@@ -429,7 +429,17 @@ if (modo === 'CONSULTA_STOCK') {
       if (scannerActivo) {
         return;
       }
+        // =====================================================
+    // CONSULTA STOCK → CÁMARA AUTOMÁTICA
+    // =====================================================
 
+    if (modo === "CONSULTA_STOCK") {
+
+      console.log(
+        "V1.13.10 - Consulta Stock: cámara automática."
+      );
+
+    }    
       lecturaBloqueada = false;
 
       try {
@@ -656,7 +666,19 @@ if (modo === 'CONSULTA_STOCK') {
 
       }
     );
+// =====================================================
+// V1.13.10 - CONSULTA STOCK: INICIAR CÁMARA AUTOMÁTICAMENTE
+// =====================================================
 
+if (modo === "CONSULTA_STOCK") {
+
+  console.log(
+    "V1.13.10 - Modo CONSULTA_STOCK detectado."
+  );
+
+  iniciarScanner();
+
+}  
   </script>
 </body>
 </html>
