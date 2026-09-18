@@ -234,6 +234,9 @@
 
     const targetOrigin =
       PARAMETROS.get("targetOrigin") || "*";
+    const modo =
+      (PARAMETROS.get("modo") || "PUNTO_CERO").trim().toUpperCase();
+    
 
     document.getElementById("ubicacion").textContent =
       ubicacionCodigo
@@ -294,7 +297,8 @@
 
         sku: sku,
 
-        ubicacion: ubicacionCodigo
+        ubicacion: ubicacionCodigo,
+        modo: modo
 
       }, targetOrigin);
 
